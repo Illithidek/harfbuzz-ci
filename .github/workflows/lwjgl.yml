@@ -144,7 +144,7 @@ jobs:
           - ARCH: arm64
             MSVC_ARCH: amd64_arm64
             PLATFORM: ARM64
-            MESON_PARAMS: --cross-file lwjgl_arm64cl.cross
+            MESON_PARAMS: --cross-file lwjgl_windows_arm64cl.cross
     steps:
       - uses: actions/checkout@v3
         with:
