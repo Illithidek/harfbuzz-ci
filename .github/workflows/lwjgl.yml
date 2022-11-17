@@ -57,8 +57,7 @@ jobs:
           sudo apt-get update || true
         if: contains(matrix.ARCH, 'x64') != true
         name: Prepare cross-compilation
-      - run: |
-          sudo apt-get -fyq --allow-unauthenticated --no-install-suggests --no-install-recommends install ${{matrix.PACKAGES}} -o Dpkg::Options::="--force-overwrite"
+      - run: sudo apt-get -fyq --allow-unauthenticated --no-install-suggests --no-install-recommends install ${{matrix.PACKAGES}} -o Dpkg::Options::="--force-overwrite"
         name: Install dependencies
       - run: |
           cd freetype
@@ -75,12 +74,10 @@ jobs:
           cmake --build . --parallel
           ${{matrix.STRIP}} libharfbuzz.so
         name: Configure and build harfbuzz
-      - run: aws s3 cp harfbuzz/build/libharfbuzz.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ $S3_PARAMS
-        name: Upload artifact
-      - run: |
-          git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libharfbuzz.so.git
-          aws s3 cp libharfbuzz.so.git s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ $S3_PARAMS
-        name: Upload git revision
+      - uses: actions/upload-artifact@v3
+        with:
+          name: harfbuzz-linux-${{matrix.ARCH}}
+          path: harfbuzz/build
   macos:
     name: macOS
     runs-on: macos-latest
@@ -119,12 +116,10 @@ jobs:
           cmake --build . --parallel
           strip -u -r libharfbuzz.dylib
         name: Configure and build harfbuzz
-      - run: aws s3 cp harfbuzz/build/libharfbuzz.dylib s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ $S3_PARAMS
-        name: Upload artifact
-      - run: |
-          git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libharfbuzz.dylib.git
-          aws s3 cp libharfbuzz.dylib.git s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ $S3_PARAMS
-        name: Upload git revision
+      - uses: actions/upload-artifact@v3
+        with:
+          name: harfbuzz-macos-${{matrix.ARCH}}
+          path: harfbuzz/build
   windows:
     name: Windows
     runs-on: windows-latest
@@ -144,7 +139,7 @@ jobs:
           - ARCH: arm64
             MSVC_ARCH: amd64_arm64
             PLATFORM: ARM64
-            MESON_PARAMS: --cross-file lwjgl_windows_arm64cl.cross
+            MESON_PARAMS: --cross-file lwjgl_arm64cl.cross
     steps:
       - uses: actions/checkout@v3
         with:
@@ -166,11 +161,7 @@ jobs:
           meson install -C build
         shell: cmd
         name: Build
-      - run: aws s3 cp release\bin\harfbuzz.dll s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
-        shell: cmd
-        name: Upload artifact
-      - run: |
-          git log --first-parent --pretty=format:%%H HEAD~2..HEAD~1 > harfbuzz.dll.git
-          aws s3 cp harfbuzz.dll.git s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
-        shell: cmd
-        name: Upload git revision
+      - uses: actions/upload-artifact@v3
+        with:
+          name: harfbuzz-windows-${{matrix.ARCH}}
+          path: release
