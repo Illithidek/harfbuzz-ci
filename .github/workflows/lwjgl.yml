@@ -14,11 +14,11 @@ env:
 jobs:
   linux:
     name: Linux
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        BUILD: [x64, arm32, arm64]
+        BUILD: [ x64, arm32, arm64 ]
         include:
           - BUILD: x64
             ARCH: x64
@@ -40,9 +40,14 @@ jobs:
     env:
       LWJGL_ARCH: ${{matrix.ARCH}}
     steps:
+      - uses: actions/checkout@master
+        with:
+          repository: freetype/freetype
+          path: freetype
       - uses: actions/checkout@v3
         with:
           fetch-depth: 3
+          path: harfbuzz
       - run: |
           sudo sed -i 's/deb http/deb [arch=amd64,i386] http/' /etc/apt/sources.list
           sudo grep "ubuntu.com/ubuntu" /etc/apt/sources.list | sudo tee /etc/apt/sources.list.d/ports.list
@@ -55,20 +60,26 @@ jobs:
       - run: sudo apt-get -fyq --allow-unauthenticated --no-install-suggests --no-install-recommends install ${{matrix.PACKAGES}} -o Dpkg::Options::="--force-overwrite"
         name: Install dependencies
       - run: |
-          ${{matrix.CC}} cmake . -B build -DBUILD_SHARED_LIBS=true -DCMAKE_BUILD_TYPE=Release
-        name: Configure build
+          cd freetype
+          ${{matrix.CC}} cmake . -B build -DFT_DISABLE_BROTLI=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_PNG=ON -DFT_DISABLE_ZLIB=ON -DBUILD_SHARED_LIBS=true -DCMAKE_BUILD_TYPE=Release
+          cd build
+          cmake --build . --parallel
+          ${{matrix.STRIP}} libfreetype.so
+          sudo make install
+        name: Build and install Openssl
       - run: |
+          cd harfbuzz
+          ${{matrix.CC}} cmake . -B build -DHB_HAVE_FREETYPE=true -DBUILD_SHARED_LIBS=true -DCMAKE_BUILD_TYPE=Release
           cd build
           cmake --build . --parallel
           ${{matrix.STRIP}} libharfbuzz.so
-        name: Build
-      - run: aws s3 cp build/libharfbuzz.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ $S3_PARAMS
+        name: Configure and build harfbuzz
+      - run: aws s3 cp harfbuzz/build/libharfbuzz.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ $S3_PARAMS
         name: Upload artifact
       - run: |
           git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libharfbuzz.so.git
           aws s3 cp libharfbuzz.so.git s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ $S3_PARAMS
         name: Upload git revision
-
   macos:
     name: macOS
     runs-on: macos-latest
@@ -79,27 +90,40 @@ jobs:
         include:
           - ARCH: x64
             CMAKE_PARAMS: -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9
+            CMAKE_FREETYPE_PARAMS: -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9 -DFT_DISABLE_BROTLI=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_PNG=ON -DFT_DISABLE_ZLIB=ON
           - ARCH: arm64
             CMAKE_PARAMS: -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DCMAKE_OSX_ARCHITECTURES=arm64
+            CMAKE_FREETYPE_PARAMS: -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DCMAKE_OSX_ARCHITECTURES=arm64 -DFT_DISABLE_BROTLI=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_PNG=ON -DFT_DISABLE_ZLIB=ON
     steps:
+      - uses: actions/checkout@master
+        with:
+          repository: freetype/freetype
+          path: freetype
       - uses: actions/checkout@v3
         with:
           fetch-depth: 3
-        name: Install dependencies
-      - run: cmake . -B build ${{matrix.CMAKE_PARAMS}} -DBUILD_SHARED_LIBS=true -DCMAKE_BUILD_TYPE=Release
-        name: Configure build
+          path: harfbuzz
       - run: |
+          cd freetype
+          cmake . -B build ${{matrix.CMAKE_FREETYPE_PARAMS}} -DBUILD_SHARED_LIBS=true -DCMAKE_BUILD_TYPE=Release
+          cd build
+          cmake --build . --parallel
+          strip -u -r libfreetype.dylib
+          sudo make install
+        name: Build and install Openssl
+      - run: |
+          cd harfbuzz
+          cmake . -B build ${{matrix.CMAKE_PARAMS}} -DHB_HAVE_FREETYPE=true -DBUILD_SHARED_LIBS=true -DCMAKE_BUILD_TYPE=Release
           cd build
           cmake --build . --parallel
           strip -u -r libharfbuzz.dylib
-        name: Build
-      - run: aws s3 cp build/libharfbuzz.dylib s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ $S3_PARAMS
+        name: Configure and build harfbuzz
+      - run: aws s3 cp harfbuzz/build/libharfbuzz.dylib s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ $S3_PARAMS
         name: Upload artifact
       - run: |
           git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libharfbuzz.dylib.git
           aws s3 cp libharfbuzz.dylib.git s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ $S3_PARAMS
         name: Upload git revision
-
   windows:
     name: Windows
     runs-on: windows-latest
@@ -111,26 +135,37 @@ jobs:
           - ARCH: x86
             MSVC_ARCH: amd64_x86
             PLATFORM: Win32
+            MESON_PARAMS:
           - ARCH: x64
             MSVC_ARCH: amd64
             PLATFORM: x64
+            MESON_PARAMS:
           - ARCH: arm64
             MSVC_ARCH: amd64_arm64
             PLATFORM: ARM64
+            MESON_PARAMS: --cross-file lwjgl_arm64cl.cross
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{matrix.MSVC_ARCH}}
-      - run: cmake -B build -G "Visual Studio 17 2022" -A ${{matrix.PLATFORM}} -DHB_HAVE_GDI=ON -DHB_HAVE_DIRECTWRITE=ON -DBUILD_SHARED_LIBS=true
+      - run: |
+          python -m pip install -U pip
+          pip install --upgrade meson ninja fonttools
         shell: cmd
-        name: Configure build
-      - run: cmake --build build --config Release --parallel
+        name: Install Dependencies
+      - run: |
+          meson setup ${{matrix.MESON_PARAMS}} --wrap-mode=default --buildtype=release -Dfreetype=enabled -Dgdi=enabled -Ddirectwrite=enabled --prefix=%cd%/release build
+          meson compile -C build
+          meson install -C build
         shell: cmd
         name: Build
-      - run: aws s3 cp build\Release\harfbuzz.dll s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+      - run: aws s3 cp release\bin\harfbuzz.dll s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
         shell: cmd
         name: Upload artifact
       - run: |
