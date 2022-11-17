@@ -57,7 +57,8 @@ jobs:
           sudo apt-get update || true
         if: contains(matrix.ARCH, 'x64') != true
         name: Prepare cross-compilation
-      - run: sudo apt-get -fyq --allow-unauthenticated --no-install-suggests --no-install-recommends install ${{matrix.PACKAGES}} -o Dpkg::Options::="--force-overwrite"
+      - run: |
+          sudo apt-get -fyq --allow-unauthenticated --no-install-suggests --no-install-recommends install ${{matrix.PACKAGES}} -o Dpkg::Options::="--force-overwrite"
         name: Install dependencies
       - run: |
           cd freetype
